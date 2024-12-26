@@ -1,0 +1,8 @@
+## Interface: 100000
+## Title: Mount Binder
+## Notes: A mount selection addon with keybind support
+## Version: 1.0.0
+## SavedVariables: MountBinderDB, MountBinderGlobalDB
+## IconTexture: Interface\AddOns\MountBinder\mountbinder.tga
+MountBinder_DB.lua
+MountBinder.lua
