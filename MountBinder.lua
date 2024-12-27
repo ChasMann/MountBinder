@@ -111,8 +111,8 @@ function addon:CreateMountSlot(index, name, isAdvanced)
             self.icon:SetTexture(icon)
             addon:SaveMountSelections()
             print("Mount saved for " .. name .. " modifier.")
-        elseif infoType == "spell" and id == 369536 then -- Soar ability
-            self.mountID = -369536  -- Use negative ID to identify Soar
+        elseif infoType == "spell" and (id == 369536 or id == 383359 or id == 375841) then -- Soar abilities
+            self.mountID = -id  -- Use negative ID to identify Soar
             self.icon:SetTexture("Interface\\Icons\\ability_dragonriding_soar")
             addon:SaveMountSelections()
             print("Soar ability saved for " .. name .. " modifier.")
@@ -285,8 +285,8 @@ function addon:SummonMount()
             return
         end
         -- Special handling for Soar ability
-        if slot.mountID == -369536 then  -- Using negative spell ID to identify Soar
-            CastSpellByID(369536)  -- Cast Soar ability
+        if slot.mountID and slot.mountID < 0 then  -- Using negative spell ID to identify Soar
+            CastSpellByID(-slot.mountID)  -- Cast Soar ability
             print("Using Soar ability")
         else
             C_MountJournal.SummonByID(slot.mountID)
@@ -312,7 +312,7 @@ end
 function addon:UpdateMountIcons()
     for i, slot in ipairs(self.mountSlots) do
         if slot.mountID then
-            if slot.mountID == -369536 then  -- Soar ability
+            if slot.mountID and slot.mountID < 0 then  -- Soar ability
                 slot.icon:SetTexture("Interface\\Icons\\ability_dragonriding_soar")
             else
                 local _, _, icon = C_MountJournal.GetMountInfoByID(slot.mountID)
