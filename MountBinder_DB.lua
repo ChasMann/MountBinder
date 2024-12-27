@@ -11,6 +11,7 @@ function MountBinder_SaveMountSelections(addon)
     if not MountBinderDB[fullName] then MountBinderDB[fullName] = {} end
 
     MountBinderDB[fullName].advancedMode = addon.advancedMode
+    MountBinderDB[fullName].useSoar = addon.useSoar
 
     MountBinderDB[fullName].mounts = {}
     for i, slot in ipairs(addon.mountSlots) do
@@ -31,7 +32,9 @@ function MountBinder_LoadMountSelections(addon)
     end
 
     addon.advancedMode = MountBinderDB[fullName].advancedMode or false
+    addon.useSoar = MountBinderDB[fullName].useSoar or false
     addon.advancedModeCheckbox:SetChecked(addon.advancedMode)
+    addon.soarCheckbox:SetChecked(addon.useSoar)
     addon:UpdateMountSlots()
 
     local slotNames = {

@@ -4,5 +4,6 @@
 ## Version: 1.0.0
 ## SavedVariables: MountBinderDB, MountBinderGlobalDB
 ## IconTexture: Interface\AddOns\MountBinder\mountbinder.tga
+MountBinder.xml
 MountBinder_DB.lua
 MountBinder.lua

@@ -1,160 +1,154 @@
 local addonName, addon = ...
-local isInitialized = false  -- Flag to prevent multiple initializations
+local isInitialized = false
 
--- Function to initialize the addon
-function addon:Init()
-    print("Mount Binder Addon Initializing...")
-    
-    -- Create the main frame
-    self.frame = CreateFrame("Frame", "MountBinderFrame", UIParent, "BasicFrameTemplateWithInset")
+-- Constants
+local SOAR_SPELL_IDS = {
+    369536,  -- Original Dracthyr Soar
+    383359,  -- Dracthyr Empowered Soar
+    375841,  -- Additional variant
+    441313,  -- Additional variant
+    430747   -- Additional variant
+}
 
-    if self.frame then
-        print("MountBinderFrame Created Successfully.")
-    else
-        print("Error: MountBinderFrame failed to create.")
-        return
+-- Utility Functions
+local function Debug(msg)
+    if addon.debug then
+        print("|cFF00FF00[MountBinder Debug]|r " .. msg)
     end
-    
-    -- Frame attributes
-    self.frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)  -- Center the frame for easy access
-    self.frame:Hide()  -- Frame hidden by default
-
-    -- Make the frame movable
-    self.frame:SetMovable(true)
-    self.frame:EnableMouse(true)
-    self.frame:RegisterForDrag("LeftButton")
-    self.frame:SetScript("OnDragStart", self.frame.StartMoving)
-    self.frame:SetScript("OnDragStop", self.frame.StopMovingOrSizing)
-
-    -- Add title
-    self.frame.title = self.frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    self.frame.title:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 5, -5)
-    self.frame.title:SetText("Mount Binder")
-
-    -- Create mount slots
-    self:CreateMountSlots()
-    -- Create Advanced Mode checkbox
-    self:CreateAdvancedModeCheckbox()
-    -- Create keybind button
-    self:CreateKeybindButton()
-    -- Add keybind display (new UI element to show the assigned key)
-    self:CreateKeybindDisplay()
-
-    -- Initial frame size update
-    self:UpdateFrameSize()
-
-    print("Mount Binder Frame Initialized and ready.")
 end
 
--- Create Advanced Mode checkbox
-function addon:CreateAdvancedModeCheckbox()
-    local checkbox = CreateFrame("CheckButton", "MountBinderAdvancedMode", self.frame, "UICheckButtonTemplate")
-    checkbox:SetSize(24, 24)
-    
-    local label = checkbox:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    label:SetPoint("LEFT", checkbox, "RIGHT", 5, 0)
-    label:SetText("Advanced Mode")
-
-    checkbox:SetScript("OnClick", function(self)
-        addon.advancedMode = self:GetChecked()
-        addon:UpdateMountSlots()
-    end)
-
-    self.advancedModeCheckbox = checkbox
+local function GetValidSoarID()
+    for _, spellID in ipairs(SOAR_SPELL_IDS) do
+        local spellName = GetSpellInfo(spellID)
+        if spellName and IsSpellKnown(spellID) then
+            Debug("Found valid Soar spell ID: " .. spellID)
+            return spellID
+        end
+    end
+    Debug("No valid Soar spell found")
+    return nil
 end
 
--- Create mount selection slots with proper size and positioning
+-- Mount Slot Functions
 function addon:CreateMountSlots()
     local basicSlotNames = {"No Mod", "Shift", "Ctrl", "Alt"}
     local advancedSlotNames = {"Shift+Ctrl", "Shift+Alt", "Ctrl+Alt", "Shift+Ctrl+Alt"}
     self.mountSlots = {}
 
+    local yOffset = -30
     for i, name in ipairs(basicSlotNames) do
-        self:CreateMountSlot(i, name, false)
+        local slot = CreateFrame("Button", "MountBinderSlot"..i, self.frame, "MountBinderSlotTemplate")
+        slot:SetPoint("TOP", self.frame, "TOP", 0, yOffset)
+        slot.text:SetText(name)
+        slot.mountID = nil
+        slot.isAdvanced = false
+        
+        -- Set up drag functionality
+        slot:RegisterForDrag("LeftButton")
+        slot:SetScript("OnDragStart", function(self)
+            if self.mountID then
+                SetCursor("Interface\\ICONS\\Spell_Nature_Swiftness")
+            end
+        end)
+
+        slot:SetScript("OnReceiveDrag", function(self)
+            local infoType, id = GetCursorInfo()
+            if infoType == "mount" then
+                self.mountID = id
+                local _, _, icon = C_MountJournal.GetMountInfoByID(id)
+                self.icon:SetTexture(icon)
+                addon:SaveMountSelections()
+                Debug("Mount " .. id .. " saved to " .. name .. " slot")
+            elseif infoType == "spell" then
+                for _, soarID in ipairs(SOAR_SPELL_IDS) do
+                    if id == soarID then
+                        self.mountID = -id
+                        self.icon:SetTexture("Interface\\Icons\\ability_dragonriding_soar")
+                        addon:SaveMountSelections()
+                        Debug("Soar ability " .. id .. " saved to " .. name .. " slot")
+                        break
+                    end
+                end
+            end
+            ClearCursor()
+        end)
+
+        -- Handle right-click to clear
+        slot:RegisterForClicks("AnyUp")
+        slot:SetScript("OnClick", function(self, button)
+            if button == "RightButton" then
+                self.mountID = nil
+                self.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+                addon:SaveMountSelections()
+                Debug("Cleared " .. name .. " slot")
+            end
+        end)
+
+        self.mountSlots[i] = slot
+        yOffset = yOffset - 35
     end
 
+    -- Create advanced slots
     for i, name in ipairs(advancedSlotNames) do
-        self:CreateMountSlot(i + #basicSlotNames, name, true)
+        local index = i + #basicSlotNames
+        local slot = CreateFrame("Button", "MountBinderSlot"..index, self.frame, "MountBinderSlotTemplate")
+        slot.text:SetText(name)
+        slot.mountID = nil
+        slot.isAdvanced = true
+        
+        -- Copy the same OnDragStart/OnReceiveDrag/OnClick handlers
+        slot:RegisterForDrag("LeftButton")
+        slot:SetScript("OnDragStart", self.mountSlots[1]:GetScript("OnDragStart"))
+        slot:SetScript("OnReceiveDrag", self.mountSlots[1]:GetScript("OnReceiveDrag"))
+        slot:RegisterForClicks("AnyUp")
+        slot:SetScript("OnClick", self.mountSlots[1]:GetScript("OnClick"))
+
+        self.mountSlots[index] = slot
     end
 end
 
-function addon:CreateMountSlot(index, name, isAdvanced)
-    local slot = CreateFrame("Button", "MountSlot"..index, self.frame, "SecureActionButtonTemplate")
-    slot:SetSize(180, 30)  -- Reduced height
-    slot:SetText(name)
-    slot:SetNormalFontObject("GameFontNormal")
+-- Tooltip Functions
+function addon:ShowMountTooltip(slot)
+    if not slot.mountID then return end
 
-    local icon = slot:CreateTexture(nil, "ARTWORK")
-    icon:SetSize(24, 24)  -- Reduced icon size
-    icon:SetPoint("LEFT", slot, "LEFT", 5, 0)
-
-    -- Default icon (empty slot)
-    icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
-    slot.icon = icon
-    slot.mountID = nil
-    slot.isAdvanced = isAdvanced
-
-    -- Enable dragging functionality
-    slot:RegisterForDrag("LeftButton")
-    slot:SetScript("OnDragStart", function(self)
-        if self.mountID then
-            SetCursor("Interface\\ICONS\\Spell_Nature_Swiftness")
+    GameTooltip:SetOwner(slot, "ANCHOR_RIGHT")
+    if slot.mountID < 0 then
+        -- Soar ability tooltip
+        local spellID = -slot.mountID
+        GameTooltip:SetSpellByID(spellID)
+    else
+        -- Mount tooltip
+        local name, spellID, icon, _, _, _, _, _, _, _, isCollected = C_MountJournal.GetMountInfoByID(slot.mountID)
+        if name then
+            GameTooltip:SetText(name)
+            local _, description = C_MountJournal.GetMountInfoExtraByID(slot.mountID)
+            if description then
+                GameTooltip:AddLine(description, 1, 1, 1, true)
+            end
+            if not isCollected then
+                GameTooltip:AddLine("Mount not collected", 1, 0, 0)
+            end
         end
-    end)
-
-    -- Receive dragged mount and set the icon accordingly
-    slot:SetScript("OnReceiveDrag", function(self)
-        local infoType, id = GetCursorInfo()
-        if infoType == "mount" then
-            self.mountID = id
-            local _, _, icon = C_MountJournal.GetMountInfoByID(id)
-            self.icon:SetTexture(icon)
-            addon:SaveMountSelections()
-            print("Mount saved for " .. name .. " modifier.")
-        elseif infoType == "spell" and (id == 369536 or id == 383359 or id == 375841) then -- Soar abilities
-            self.mountID = -id  -- Use negative ID to identify Soar
-            self.icon:SetTexture("Interface\\Icons\\ability_dragonriding_soar")
-            addon:SaveMountSelections()
-            print("Soar ability saved for " .. name .. " modifier.")
-        else
-            print("Invalid drag: not a mount or Soar ability")
-        end
-        ClearCursor()
-    end)
-
-    -- Handle clearing the mount on right-click or Shift+Click
-    slot:RegisterForClicks("AnyUp")
-    slot:SetScript("OnClick", function(self, button)
-        if (button == "RightButton" or IsShiftKeyDown()) and self.mountID then
-            self.mountID = nil
-            self.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")  -- Reset to default icon
-            addon:SaveMountSelections()
-            print("Mount cleared for " .. name .. " modifier.")
-        end
-    end)
-
-    self.mountSlots[index] = slot
+    end
+    GameTooltip:Show()
 end
 
+-- UI Update Functions
 function addon:UpdateMountSlots()
-    local yOffset = -30  -- Start below the title
+    local yOffset = -30
     local basicSlots = 4
 
-    -- Position basic slots
+    -- Update basic slots
     for i = 1, basicSlots do
         local slot = self.mountSlots[i]
         slot:Show()
         slot:SetPoint("TOP", self.frame, "TOP", 0, yOffset)
-        yOffset = yOffset - 35  -- Reduced spacing between slots
+        yOffset = yOffset - 35
     end
 
-    -- Position Advanced Mode checkbox
-    self.advancedModeCheckbox:SetPoint("TOP", self.mountSlots[basicSlots], "BOTTOM", -70, -5)
-    self.advancedModeCheckbox:Show()
-
-    -- Position advanced slots
+    -- Update advanced slots visibility
     if self.advancedMode then
-        yOffset = yOffset - 35  -- Extra space for the checkbox
+        yOffset = yOffset - 35
         for i = basicSlots + 1, #self.mountSlots do
             local slot = self.mountSlots[i]
             slot:Show()
@@ -171,95 +165,32 @@ function addon:UpdateMountSlots()
 end
 
 function addon:UpdateFrameSize()
-    local baseHeight = 200  -- Base height including title and some padding
-    local slotHeight = 35   -- Height of each slot
-    local visibleSlots = 4  -- Start with 4 basic slots
+    local baseHeight = 200
+    local slotHeight = 35
+    local visibleSlots = 4
 
     if self.advancedMode then
-        visibleSlots = visibleSlots + 4  -- Add 4 more slots for advanced mode
+        visibleSlots = visibleSlots + 4
     end
 
     local newHeight = baseHeight + (slotHeight * visibleSlots)
     self.frame:SetSize(220, newHeight)
-
-    -- Reposition the keybind button and display
-    self.keybindButton:SetPoint("BOTTOM", self.frame, "BOTTOM", 0, 10)
-    self.keybindDisplay:SetPoint("BOTTOM", self.keybindButton, "TOP", 0, 5)
 end
 
--- Adjust the keybind button to avoid covering the stored keybind
-function addon:CreateKeybindButton()
-    local button = CreateFrame("Button", "MountBinderKeybindButton", self.frame, "UIPanelButtonTemplate")
-    button:SetSize(160, 25)  -- Reduced button height
-    button:SetText("Set Mount Keybind")
-    button:SetScript("OnClick", function() 
-        self:SetKeybind()
-    end)
-    self.keybindButton = button
-end
-
--- Move the keybind display above the button to avoid overlap
-function addon:CreateKeybindDisplay()
-    self.keybindDisplay = self.frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    self.keybindDisplay:SetText("No keybind set")  -- Default message
-end
-
--- Update keybind display
-function addon:UpdateKeybindDisplay(key)
-    if key then
-        self.keybindDisplay:SetText("Current Keybind: " .. key)
-    else
-        self.keybindDisplay:SetText("No keybind set")
+-- Soar Functions
+function addon:SetSoarInNoModSlot()
+    local soarID = GetValidSoarID()
+    if soarID then
+        local firstSlot = self.mountSlots[1]
+        firstSlot.mountID = -soarID
+        firstSlot.icon:SetTexture("Interface\\Icons\\ability_dragonriding_soar")
+        Debug("Set Soar " .. soarID .. " in No Mod slot")
+        return true
     end
+    return false
 end
 
--- Save the keybind globally
-function addon:SetKeybind()
-    local function OnKeyDown(self, key)
-        if key == "ESCAPE" then
-            self:SetPropagateKeyboardInput(true)
-            self:EnableKeyboard(false)
-            return
-        end
-        
-        self:SetPropagateKeyboardInput(false)
-        -- Bind the key to the action of summoning the mount
-        SetBindingClick(key, "MountBinderSummonButton")
-        
-        -- Save the keybinding globally
-        SaveBindings(2)  -- 2 for Account-wide bindings
-        
-        self:EnableKeyboard(false)
-        print("Mount Binder keybind set to: " .. key)
-
-        -- Save the key in your addon's saved variables
-        if not MountBinderGlobalDB then MountBinderGlobalDB = {} end
-        MountBinderGlobalDB.keybind = key
-        -- Update the UI to show the current keybind
-        addon:UpdateKeybindDisplay(key)
-    end
-
-    local keyListener = CreateFrame("Frame", nil, UIParent)
-    keyListener:EnableKeyboard(true)
-    keyListener:SetPropagateKeyboardInput(true)
-    keyListener:SetScript("OnKeyDown", OnKeyDown)
-
-    print("Press any key to set the Mount Binder keybind (or ESC to cancel)")
-end
-
-
--- Create the action button for summoning the mount
-function addon:CreateSummonButton()
-    local summonButton = CreateFrame("Button", "MountBinderSummonButton", UIParent, "SecureActionButtonTemplate")
-    summonButton:SetAttribute("type", "macro")
-    summonButton:SetAttribute("macrotext", "/click MountBinderSummonButton")
-    
-    summonButton:SetScript("PreClick", function(self)
-        addon:SummonMount()
-    end)
-end
-
--- Summon the mount based on the modifier key
+-- Mount Summoning
 function addon:SummonMount()
     local index = 1
     if IsShiftKeyDown() and IsControlKeyDown() and IsAltKeyDown() then
@@ -280,95 +211,155 @@ function addon:SummonMount()
 
     local slot = self.mountSlots[index]
     if slot and slot.mountID then
-        if (index > 4 and not self.advancedMode) then
-            print("Advanced Mode is not enabled. Unable to summon this mount.")
+        if slot.isAdvanced and not self.advancedMode then
+            Debug("Advanced Mode not enabled for slot " .. index)
             return
         end
-        -- Special handling for Soar ability
-        if slot.mountID and slot.mountID < 0 then  -- Using negative spell ID to identify Soar
-            CastSpellByID(-slot.mountID)  -- Cast Soar ability
-            print("Using Soar ability")
-        else
-            C_MountJournal.SummonByID(slot.mountID)
-            print("Summoning mount ID: " .. slot.mountID)
-        end
-    else
-        print("No mount selected for this modifier")
-    end
-end
 
--- Main addon file (MountBinder.lua)
-function addon:SaveMountSelections()
-    MountBinder_SaveMountSelections(self)
-end
-
-function addon:LoadMountSelections()
-    MountBinder_LoadMountSelections(self)
-    self:UpdateMountIcons()  -- Add this line to update icons after loading
-    self:UpdateMountSlots()  -- Update slot visibility and frame size
-end
-
--- New function to update mount icons
-function addon:UpdateMountIcons()
-    for i, slot in ipairs(self.mountSlots) do
-        if slot.mountID then
-            if slot.mountID and slot.mountID < 0 then  -- Soar ability
-                slot.icon:SetTexture("Interface\\Icons\\ability_dragonriding_soar")
+        if slot.mountID < 0 then
+            local spellID = -slot.mountID
+            if IsSpellKnown(spellID) then
+                CastSpellByID(spellID)
+                Debug("Cast Soar spell " .. spellID)
             else
-                local _, _, icon = C_MountJournal.GetMountInfoByID(slot.mountID)
-                if icon then
-                    slot.icon:SetTexture(icon)
-                else
-                    slot.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
-                end
+                Debug("Soar spell " .. spellID .. " not known")
             end
         else
-            slot.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+            C_MountJournal.SummonByID(slot.mountID)
+            Debug("Summoned mount " .. slot.mountID)
         end
     end
 end
 
--- Save the keybind globally
-function addon:SaveKeybind()
-    MountBinder_SaveKeybind(self)
+-- Initialization
+function addon:Init()
+    self.frame = MountBinderFrame
+    self.frame.title:SetText("Mount Binder")
+    
+    -- Set up checkboxes
+    self.advancedModeCheckbox = self.frame.advancedMode
+    self.advancedModeCheckbox:SetScript("OnClick", function(cb)
+        self.advancedMode = cb:GetChecked()
+        self:UpdateMountSlots()
+        self:SaveMountSelections()
+    end)
+
+    self.soarCheckbox = self.frame.useSoar
+    self.soarCheckbox:SetScript("OnClick", function(cb)
+        self.useSoar = cb:GetChecked()
+        if self.useSoar then
+            if not self:SetSoarInNoModSlot() then
+                self.useSoar = false
+                cb:SetChecked(false)
+            end
+        else
+            local firstSlot = self.mountSlots[1]
+            if firstSlot.mountID and firstSlot.mountID < 0 then
+                firstSlot.mountID = nil
+                firstSlot.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+            end
+        end
+        self:SaveMountSelections()
+    end)
+
+    -- Set up keybind button
+    self.keybindButton = self.frame.keybindButton
+    self.keybindButton:SetText("Set Mount Keybind")
+    self.keybindButton:SetScript("OnClick", function()
+        self:SetKeybind()
+    end)
+
+    -- Create mount slots
+    self:CreateMountSlots()
+    
+    -- Create summon button
+    self:CreateSummonButton()
+
+    -- Set up frame movement
+    self.frame:RegisterForDrag("LeftButton")
+    self.frame:SetScript("OnDragStart", self.frame.StartMoving)
+    self.frame:SetScript("OnDragStop", self.frame.StopMovingOrSizing)
+
+    Debug("Mount Binder initialized")
 end
 
--- Load the saved keybind and display it
-function addon:LoadKeybind()
-    MountBinder_LoadKeybind(self)
+-- Create the action button for summoning the mount
+function addon:CreateSummonButton()
+    local summonButton = CreateFrame("Button", "MountBinderSummonButton", UIParent, "SecureActionButtonTemplate")
+    summonButton:SetAttribute("type", "macro")
+    summonButton:SetAttribute("macrotext", "/click MountBinderSummonButton")
+    
+    summonButton:SetScript("PreClick", function(self)
+        addon:SummonMount()
+    end)
+    Debug("Created summon button")
 end
 
--- Initialize the addon when ADDON_LOADED event fires
-local function OnAddonLoaded(self, event, loadedAddonName)
-    if loadedAddonName == addonName and not isInitialized then
-        print("Mount Binder Addon Loaded.")
-        addon:Init()
-        addon:CreateSummonButton()  -- Create the summon button when the addon loads
-        isInitialized = true
+-- Keybind Functions
+function addon:SetKeybind()
+    local function OnKeyDown(self, key)
+        if key == "ESCAPE" then
+            self:SetPropagateKeyboardInput(true)
+            self:EnableKeyboard(false)
+            return
+        end
         
-        -- Register for PLAYER_ENTERING_WORLD event
-        self:RegisterEvent("PLAYER_ENTERING_WORLD")
+        self:SetPropagateKeyboardInput(false)
+        SetBindingClick(key, "MountBinderSummonButton")
+        SaveBindings(2)  -- Account-wide bindings
+        
+        self:EnableKeyboard(false)
+        
+        -- Save the key
+        addon.keybind = key
+        addon:SaveKeybind()
+        
+        -- Update display
+        local bindText = _G[addon.frame:GetName().."KeybindButton"]:GetText()
+        if bindText then
+            bindText = string.format("Mount Keybind: %s", key)
+        end
+        
+        Debug("Keybind set to: " .. key)
+    end
+
+    local keyListener = CreateFrame("Frame", nil, UIParent)
+    keyListener:EnableKeyboard(true)
+    keyListener:SetPropagateKeyboardInput(true)
+    keyListener:SetScript("OnKeyDown", OnKeyDown)
+    
+    print("Press any key to set the Mount Binder keybind (or ESC to cancel)")
+end
+
+-- Event Handling
+local function OnEvent(self, event, ...)
+    if event == "ADDON_LOADED" and ... == addonName then
+        if not isInitialized then
+            addon:Init()
+            isInitialized = true
+            self:RegisterEvent("PLAYER_ENTERING_WORLD")
+        end
     elseif event == "PLAYER_ENTERING_WORLD" then
-        -- Load mount selections and update icons when player enters world
         addon:LoadMountSelections()
         addon:LoadKeybind()
-        print("Mount Binder: Mounts and keybind loaded.")
     end
 end
 
--- Register the events
 local eventFrame = CreateFrame("Frame")
 eventFrame:RegisterEvent("ADDON_LOADED")
-eventFrame:SetScript("OnEvent", OnAddonLoaded)
+eventFrame:SetScript("OnEvent", OnEvent)
 
--- Add slash command to manually show or hide the mount selector
+-- Slash Command
 SLASH_MOUNTBINDER1 = "/mountbinder"
 SlashCmdList["MOUNTBINDER"] = function(msg)
-    if addon.frame:IsShown() then
-        addon.frame:Hide()
-        print("Mount Binder Hidden.")
+    if msg == "debug" then
+        addon.debug = not addon.debug
+        print("MountBinder debug mode: " .. (addon.debug and "ON" or "OFF"))
     else
-        addon.frame:Show()
-        print("Mount Binder Shown.")
+        if addon.frame:IsShown() then
+            addon.frame:Hide()
+        else
+            addon.frame:Show()
+        end
     end
 end
