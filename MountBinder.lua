@@ -111,8 +111,13 @@ function addon:CreateMountSlot(index, name, isAdvanced)
             self.icon:SetTexture(icon)
             addon:SaveMountSelections()
             print("Mount saved for " .. name .. " modifier.")
+        elseif infoType == "spell" and id == 369536 then -- Soar ability
+            self.mountID = -369536  -- Use negative ID to identify Soar
+            self.icon:SetTexture("Interface\\Icons\\ability_dragonriding_soar")
+            addon:SaveMountSelections()
+            print("Soar ability saved for " .. name .. " modifier.")
         else
-            print("Invalid drag: not a mount")
+            print("Invalid drag: not a mount or Soar ability")
         end
         ClearCursor()
     end)
@@ -279,8 +284,14 @@ function addon:SummonMount()
             print("Advanced Mode is not enabled. Unable to summon this mount.")
             return
         end
-        C_MountJournal.SummonByID(slot.mountID)
-        print("Summoning mount ID: " .. slot.mountID)
+        -- Special handling for Soar ability
+        if slot.mountID == -369536 then  -- Using negative spell ID to identify Soar
+            CastSpellByID(369536)  -- Cast Soar ability
+            print("Using Soar ability")
+        else
+            C_MountJournal.SummonByID(slot.mountID)
+            print("Summoning mount ID: " .. slot.mountID)
+        end
     else
         print("No mount selected for this modifier")
     end
@@ -301,11 +312,15 @@ end
 function addon:UpdateMountIcons()
     for i, slot in ipairs(self.mountSlots) do
         if slot.mountID then
-            local _, _, icon = C_MountJournal.GetMountInfoByID(slot.mountID)
-            if icon then
-                slot.icon:SetTexture(icon)
+            if slot.mountID == -369536 then  -- Soar ability
+                slot.icon:SetTexture("Interface\\Icons\\ability_dragonriding_soar")
             else
-                slot.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+                local _, _, icon = C_MountJournal.GetMountInfoByID(slot.mountID)
+                if icon then
+                    slot.icon:SetTexture(icon)
+                else
+                    slot.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+                end
             end
         else
             slot.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
